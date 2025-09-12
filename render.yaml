@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: stock-market-dashboard
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "waitress-serve --host=0.0.0.0 --port=$PORT analysis_service:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"

@@ -1,0 +1,188 @@
+<!-- index.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" 
+          content="width=device-width, initial-scale=1.0">
+    <title>Stock Market Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>Stock Market Dashboard</h1>            <nav class="main-nav">
+                <a href="index.html" class="active">Main Dashboard</a>
+                <a href="strategies.html">Custom Strategies</a>
+            </nav>
+
+            <div id="connection-status" class="status-bar"></div>
+            <span id="python-status-display"></span>
+        </header>
+        <main>
+            <div class="watchlist">
+                <h2>Watchlist</h2>
+                <ul id="watchlist">
+                    <!-- Watchlist items will be dynamically added here -->
+                </ul>
+            </div>
+            <div class="stock-details">
+                <h2>Stock Details</h2>
+                <div id="stock-info">
+                    <!-- Stock details will be displayed here -->
+                </div>
+                <div class="chart-container">
+                    <canvas id="stock-chart"></canvas>
+                </div>
+            </div>
+        </main>
+        <section class="search-section">
+            <input type="text" id="search" 
+                   placeholder="Search for stocks...">
+            <table id="stock-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Price</th>
+                        <th>Change</th>
+                        <th>RSI (14)</th>
+                        <th>SMA (20)</th>
+                        <th>SMA (50)</th>
+                        <th>User Signal</th>
+                        <th>AI Signal</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Stock list will be dynamically added here -->
+                </tbody>
+            </table>
+        </section>
+        <section class="strategy-builder">
+            <h2>Strategy Builder</h2>
+            <form id="strategy-form">
+                <input type="text" id="strategy-name" placeholder="Strategy Name" required>
+                <select id="strategy-field" required>
+                    <option value="" disabled selected>Select Field...</option>
+                    <option value="price">Price</option>
+                    <option value="change">Change (%)</option>
+                    <option value="rsi">RSI (14-Day)</option>
+                    <option value="atr">ATR (14-Day)</option>
+                </select>
+                <select id="strategy-operator" required>
+                    <option value=">" selected> &gt; (Greater Than)</option>
+                    <option value="<"> &lt; (Less Than)</option>
+                    <option value=">="> &gt;= (Greater or Equal)</option>
+                    <option value="<="> &lt;= (Less or Equal)</option>
+                    <option value="=="> = (Equal)</option>
+                </select>
+                <input type="number" id="strategy-value" placeholder="Value" step="any" required>
+                <select id="strategy-signal" required>
+                    <option value="BUY">BUY</option>
+                    <option value="SELL">SELL</option>
+                </select>
+                <button type="submit" class="add">Create Strategy</button>
+            </form>
+            <br>
+            <div class="strategy-list-container">
+                <h3>Saved Strategies</h3>
+                <ul id="strategy-list"></ul>
+            </div>
+            <div class="strategy-recommendation-container">
+                <h3>Strategy Recommendations</h3>
+                <p>The "Recommendation" column is powered by our "All-in-One" strategy. This advanced model
+                    analyzes multiple, globally-accepted technical indicators across different categories—including
+                    Trend (Moving Averages), Momentum (RSI, MACD, Stochastic), Volatility (Bollinger Bands), and
+                    Volume (OBV)—to generate high-conviction "STRONG BUY" or "STRONG SELL" signals.</p>
+            </div>
+        </section>
+        <br>
+        <section class="recommendations-section">
+            <h2>Today's Recommendations</h2>
+            <p class="recommendations-subtext">Real-time recommendations from our "All-in-One" strategy scanning over 100 popular stocks.</p>
+            <div class="recommendations-container">
+                <div class="recommendation-list">
+                    <h3>Top 5 Strong Buys</h3>
+                    <table id="recommendations-buy-table">
+                        <thead>
+                            <tr>
+                                <th>Stock Name</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Recommendation</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommendations-buy-table-body">
+                            <!-- Buy recommendations will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="recommendation-list">
+                    <h3>Top 5 Strong Sells</h3>
+                    <table id="recommendations-sell-table">
+                        <thead>
+                            <tr>
+                                <th>Stock Name</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Recommendation</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommendations-sell-table-body">
+                            <!-- Sell recommendations will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        <section class="recommendations-section">
+            <h2>Volume Price Increasing Strategy</h2>
+            <p class="recommendations-subtext">Top 5 F&O stocks showing a recent surge in both price and trading volume, indicating strong upward momentum.</p>
+            <div class="recommendations-container">
+                <div class="recommendation-list">
+                    <h3>Top 5 Volume & Price Gainers</h3>
+                    <table id="volume-price-table">
+                        <thead>
+                            <tr>
+                                <th>Stock Name</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Volume</th>
+                            </tr>
+                        </thead>
+                        <tbody id="volume-price-table-body">
+                            <!-- Volume/Price recommendations will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        <section class="recommendations-section">
+            <h2>Fast Volume Accumulators (F&O)</h2>
+            <p class="recommendations-subtext">Top 5 F&O stocks with the strongest combination of positive price momentum and high volume accumulation, updated every 60 seconds.</p>
+            <div class="recommendations-container">
+                <div class="recommendation-list">
+                    <h3>Top 5 Accumulators</h3>
+                    <table id="fast-accumulators-table">
+                        <thead>
+                            <tr>
+                                <th>Stock Name</th>
+                                <th>Price</th>
+                                <th>Change</th>
+                                <th>Volume Ratio</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fast-accumulators-table-body">
+                            <!-- Data will be injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

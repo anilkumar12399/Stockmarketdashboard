@@ -1,0 +1,5 @@
+Flask
+pandas
+pandas-ta
+numpy<2.0
+waitress

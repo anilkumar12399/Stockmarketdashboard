@@ -1,0 +1,40 @@
+<!-- strategies.html -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Strategies - Stock Market Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <h1>Stock Market Dashboard</h1>
+            <nav class="main-nav">
+                <a href="index.html">Main Dashboard</a>
+                <a href="strategies.html" class="active">Custom Strategies</a>
+            </nav>
+            <div id="connection-status" class="status-bar"></div>
+        </header>
+
+        <section class="recommendations-section">
+            <h2>Custom Strategy Scanners</h2>
+            <p class="recommendations-subtext">
+                Deep analysis results from various technical analysis strategies scanning our entire 200+ stock universe.
+                This page provides a comprehensive view of market opportunities, updating every 60 seconds to ensure
+                high-quality, reliable signals across the whole market.
+            </p>
+            <p class="last-updated" id="last-updated-timestamp">Last updated: --</p>
+        </section>
+
+        <main id="strategy-results-container" class="strategy-results-grid">
+            <!-- Strategy results will be dynamically injected here by strategies.js -->
+            <p>Connecting to server to get strategy results...</p>
+        </main>
+    </div>
+    <script src="strategies.js"></script>
+</body>
+</html>
