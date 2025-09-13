@@ -12,9 +12,8 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "opossum": "^9.0.0",
+    "pg": "^8.12.0",
     "socket.io": "^4.7.5",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7",
     "yahoo-finance2": "^2.11.3"
   },
   "author": "",
