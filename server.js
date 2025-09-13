@@ -274,6 +274,23 @@ async function fetchAndEmitStockUpdates() {
     }
 }
 
+async function checkPythonServiceHealth() {
+    try {
+        await pythonApiClient.get(PYTHON_HEALTH_URL, { timeout: 5000 });
+        if (!isPythonServiceHealthy) {
+            console.log('[Health Check] Python analysis service is now online.');
+            isPythonServiceHealthy = true;
+            io.emit('pythonHealthUpdate', { isHealthy: true });
+        }
+    } catch (error) {
+        if (isPythonServiceHealthy) {
+            console.error(`[Health Check] Python analysis service has gone offline. Error: ${error.message}`);
+            isPythonServiceHealthy = false;
+            io.emit('pythonHealthUpdate', { isHealthy: false });
+        }
+    }
+}
+
 // --- Main Update Loops ---
 setInterval(checkPythonServiceHealth, 30000);
 setInterval(fetchAndEmitStockUpdates, 60000);
