@@ -519,7 +519,10 @@ async function analyzeAllStocks(symbolsToFetch, quotesMap, historicalDataMap, st
 }
 
 // Main function to fetch and emit stock data
+// Main function to fetch and emit stock data
 async function fetchAndEmitStockUpdates() {
+    console.log("[DEBUG] Starting fetchAndEmitStockUpdates...");
+
     // NEW: Don't run the scan if the Python service is offline.
     if (!isPythonServiceHealthy) {
         console.log(`[${new Date().toISOString()}] Skipping scan: Python service is offline.`);
@@ -527,6 +530,7 @@ async function fetchAndEmitStockUpdates() {
         return;
     }
 
+    console.log("[DEBUG] Getting combined tracked symbols...");
     const symbolsToFetch = await getCombinedTrackedSymbols();
     if (symbolsToFetch.length === 0) {
         console.log(`[${new Date().toISOString()}] No symbols to track. Skipping scan.`);
@@ -535,16 +539,19 @@ async function fetchAndEmitStockUpdates() {
 
     console.log(`[${new Date().toISOString()}] Starting unified scan for ${symbolsToFetch.length} symbols...`);
     try {
-        // Step 1: Get user strategies from DB
+        console.log("[DEBUG] Step 1: Getting strategies from DB...");
         const strategies = await db.all('SELECT * FROM strategies');
 
-        // Step 2: Fetch all quotes and historical data
+        console.log("[DEBUG] Step 2: Fetching all quotes...");
         const quotesMap = await fetchQuotes(symbolsToFetch);
+
+        console.log("[DEBUG] Step 3: Fetching all historical data...");
         const historicalDataMap = await fetchAllHistoricalData(symbolsToFetch);
 
+        console.log("[DEBUG] Step 4: Analyzing all stocks...");
         const mappedData = await analyzeAllStocks(symbolsToFetch, quotesMap, historicalDataMap, strategies);
 
-        // --- NEW: Aggregate custom strategy results after all analyses are complete ---
+        console.log("[DEBUG] Step 5: Aggregating custom strategy results...");
         let customStrategyResults = {};
         mappedData.forEach(stockData => {
             stockData.customStrategyMatches.forEach(match => {
@@ -555,39 +562,36 @@ async function fetchAndEmitStockUpdates() {
             });
         });
 
-        // --- NEW: Add logging for strategy results for better debugging ---
         const totalMatches = Object.values(customStrategyResults).reduce((acc, strategy) => acc + strategy.stocks.length, 0);
         const strategiesWithMatches = Object.keys(customStrategyResults).length;
         console.log(`[Strategies] Found ${totalMatches} total stock matches across ${strategiesWithMatches} strategies.`);
 
-        // --- Sort and slice custom strategy results (assuming Python service did not) ---
+        console.log("[DEBUG] Step 6: Sorting and slicing custom strategy results...");
         for (const strategyName in customStrategyResults) {
             customStrategyResults[strategyName].stocks = customStrategyResults[strategyName].stocks
-                .sort((a, b) => (b.change || 0) - (a.change || 0)) // Sort by highest % change
-                .slice(0, 10); // Show top 10 for each strategy
+                .sort((a, b) => (b.change || 0) - (a.change || 0))
+                .slice(0, 10);
         }
 
-        // --- Find and emit top buys and sells separately ---
+        console.log("[DEBUG] Step 7: Finding top buys and sells...");
         const topBuys = mappedData
             .filter(stock => stock.recommendedSignal === 'STRONG BUY')
-            // Sort by RSI ascending to find the most "oversold" buys first
             .sort((a, b) => (a.rsi || 100) - (b.rsi || 100))
             .slice(0, 5);
 
         const topSells = mappedData
             .filter(stock => stock.recommendedSignal === 'STRONG SELL')
-            // Sort by RSI descending to find the most "overbought" sells first
             .sort((a, b) => (b.rsi || 0) - (a.rsi || 0))
             .slice(0, 5);
 
         const topRecommendations = { buys: topBuys, sells: topSells };
 
-        // --- NEW: Calculate and find the fast volume accumulators ---
+        console.log("[DEBUG] Step 8: Calculating fast volume accumulators...");
         const fastVolumeAccumulators = getFastVolumeAccumulators(mappedData, fnoSymbols);
 
-        // Broadcast the updates to all connected clients
+        console.log("[DEBUG] Step 9: Broadcasting updates to clients...");
         io.emit('stockUpdate', mappedData);
-        io.emit('topRecommendationsUpdate', topRecommendations); // New event with new structure
+        io.emit('topRecommendationsUpdate', topRecommendations);
         io.emit('customStrategiesUpdate', { strategies: customStrategyResults, timestamp: new Date().toISOString() });
         io.emit('fastVolumeAccumulatorsUpdate', fastVolumeAccumulators);
         io.emit('scanStatus', { message: 'Scan complete. Broadcasting updates.', step: 'done' });
@@ -595,10 +599,7 @@ async function fetchAndEmitStockUpdates() {
 
     } catch (error) {
         console.error(`[${new Date().toISOString()}] Error in fetchAndEmitStockUpdates:`, error.message);
-        // --- IMPROVED: Simplified check for timeout errors for cleaner logging ---
-        const isTimeoutError = error.message && error.message.includes('timed out');
-        // Only log the full stack trace if it's not a simple, expected timeout.
-        if (!isTimeoutError) { console.error('Full error object:', error); }
+        if (!error.message.includes('timed out')) { console.error('Full error object:', error); }
         console.error('Symbols in this fetch attempt:', symbolsToFetch);
         io.emit('scanStatus', { message: `Scan failed: ${error.message}`, step: 'error' });
         io.emit('fetchError', { error: 'Unified scan failed. The data provider might be temporarily unavailable.' });
