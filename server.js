@@ -455,58 +455,63 @@ async function fetchAllHistoricalData(symbolsToFetch) {
 }
 
 async function analyzeAllStocks(symbolsToFetch, quotesMap, historicalDataMap, strategies) {
-    console.log(`[${new Date().toISOString()}] Step 3: Analyzing ${symbolsToFetch.length} symbols in parallel...`);
+    console.log(`[${new Date().toISOString()}] Step 3: Analyzing ${symbolsToFetch.length} symbols in chunks...`);
     try {
-        const analysisPromises = symbolsToFetch.map(async(symbol) => {
-            try {
-                const stockQuote = quotesMap.get(symbol);
-                if (!stockQuote) return null;
+        const allAnalyzedData = [];
+        const CHUNK_SIZE = 10; // Process 10 symbols at a time for analysis
 
-                const history = historicalDataMap.get(symbol);
-                if (!history || history.length === 0) return null;
+        for (let i = 0; i < symbolsToFetch.length; i += CHUNK_SIZE) {
+            const chunk = symbolsToFetch.slice(i, i + CHUNK_SIZE);
+            console.log(`[Unified Scan] Analyzing chunk ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(symbolsToFetch.length / CHUNK_SIZE)}... (${chunk.length} symbols)`);
 
-                // Call the Python service for analysis
-                const analysisResult = await analyzeWithPythonService(stockQuote, history, strategies);
+            const analysisPromises = chunk.map(async(symbol) => {
+                try {
+                    const stockQuote = quotesMap.get(symbol);
+                    if (!stockQuote) return null;
 
-                // If analysis fails for a stock, skip it and move to the next one
-                if (!analysisResult) return null;
+                    const history = historicalDataMap.get(symbol);
+                    if (!history || history.length === 0) return null;
 
-                // The Python service returns all computed data
-                const { indicators, recommendedSignal, signal, customStrategyMatches } = analysisResult;
-                
-                const stockData = {
-                    symbol: stockQuote.symbol,
-                    name: stockQuote.longName || stockQuote.shortName,
-                    price: stockQuote.regularMarketPrice,
-                    change: stockQuote.regularMarketChangePercent,
-                    volume: stockQuote.regularMarketVolume,
-                    fiftyTwoWeekLow: stockQuote.fiftyTwoWeekLow,
-                    fiftyTwoWeekHigh: stockQuote.fiftyTwoWeekHigh,
-                    currency: stockQuote.currency,
-                    rsi: indicators ? indicators.rsi : null, // Keep for server-side sorting
-                    indicators: indicators, // Pass the full indicators object to the frontend
-                    signal: signal, // Signal from user-defined strategies
-                    recommendedSignal: recommendedSignal, // Signal from composite strategy
-                    // Add historical data for frontend charting (last 30 days)
-                    history: history.slice(-30).map(h => ({
-                        date: h.date,
-                        close: h.close
-                    })),
-                    // Temporarily store matches to be aggregated after all promises resolve
-                    customStrategyMatches: customStrategyMatches || []
-                };
-                return stockData;
-            } catch (e) {
-                console.error(`[Robustness] Error processing symbol ${symbol}: ${e.message}. Skipping this symbol for the current update cycle.`);
-                return null;
+                    // Call the Python service for analysis
+                    const analysisResult = await analyzeWithPythonService(stockQuote, history, strategies);
+
+                    if (!analysisResult) return null;
+
+                    const { indicators, recommendedSignal, signal, customStrategyMatches } = analysisResult;
+
+                    return {
+                        symbol: stockQuote.symbol,
+                        name: stockQuote.longName || stockQuote.shortName,
+                        price: stockQuote.regularMarketPrice,
+                        change: stockQuote.regularMarketChangePercent,
+                        volume: stockQuote.regularMarketVolume,
+                        fiftyTwoWeekLow: stockQuote.fiftyTwoWeekLow,
+                        fiftyTwoWeekHigh: stockQuote.fiftyTwoWeekHigh,
+                        currency: stockQuote.currency,
+                        rsi: indicators ? indicators.rsi : null,
+                        indicators: indicators,
+                        signal: signal,
+                        recommendedSignal: recommendedSignal,
+                        history: history.slice(-30).map(h => ({ date: h.date, close: h.close })),
+                        customStrategyMatches: customStrategyMatches || []
+                    };
+                } catch (e) {
+                    console.error(`[Robustness] Error processing symbol ${symbol}: ${e.message}. Skipping this symbol for the current update cycle.`);
+                    return null;
+                }
+            });
+
+            const chunkResults = await Promise.all(analysisPromises);
+            allAnalyzedData.push(...chunkResults.filter(data => data !== null));
+
+            // Add a small delay between chunks to be polite to the Python service
+            if (i + CHUNK_SIZE < symbolsToFetch.length) {
+                await new Promise(resolve => setTimeout(resolve, 250));
             }
-        });
+        }
 
-        // Await all promises to complete
-        const analysisResults = await Promise.all(analysisPromises);
-        const mappedData = analysisResults.filter(data => data !== null);
-        console.log(`[${new Date().toISOString()}] Step 3: Successfully analyzed ${mappedData.length} symbols.`);
-        return mappedData;
+        console.log(`[${new Date().toISOString()}] Step 3: Successfully analyzed ${allAnalyzedData.length} symbols.`);
+        return allAnalyzedData;
     } catch (error) {
         console.error(`[${new Date().toISOString()}] Step 3 Failed: Error during analysis phase.`, error.message);
         throw error;
