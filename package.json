@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:dev": "concurrently \"node server.js\" \"waitress-serve --host=127.0.0.1 --port=5000 analysis_service:app\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
@@ -13,9 +14,12 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "opossum": "^9.0.0",
-    "pg": "^8.12.0",
     "socket.io": "^4.7.5",
+    "sqlite3": "^5.1.7",
     "yahoo-finance2": "^2.11.3"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   },
   "author": "",
   "license": "ISC"

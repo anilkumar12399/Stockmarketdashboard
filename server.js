@@ -6,7 +6,7 @@ const { Server } = require("socket.io");
 const cors = require('cors');
 const yahooFinance = require('yahoo-finance2').default;
 const axios = require('axios');
-const { Pool } = require('pg'); // NEW: PostgreSQL driver
+const sqlite3 = require('sqlite3').verbose(); // Using SQLite
 const { defaultSymbols, fnoSymbols } = require('./config');
 const Agent = require('agentkeepalive');
 const CircuitBreaker = require('opossum');
@@ -36,53 +36,41 @@ const pythonApiBreaker = new CircuitBreaker(pythonApiRequestFn, breakerOptions);
 let db;
 let isPythonServiceHealthy = false;
 
-// --- NEW: PostgreSQL Database Setup ---
-async function setupDatabase() {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-        console.warn('WARNING: DATABASE_URL environment variable is not set. Watchlist and custom strategies will not work.');
-        db = null;
-        return;
-    }
-
-    db = new Pool({
-        connectionString,
-        ssl: {
-            rejectUnauthorized: false // Required for Render's internal connections
+// --- NEW: SQLite Database Setup ---
+function setupDatabase() {
+    db = new sqlite3.Database('./database.db', sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+        if (err) {
+            console.error('CRITICAL: Failed to connect to SQLite database.', err);
+            db = null;
+        } else {
+            console.log('SQLite Database connected successfully.');
+            db.serialize(() => {
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS watchlists (
+                        userId TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        PRIMARY KEY (userId, symbol)
+                    );
+                `);
+                db.run(`
+                    CREATE TABLE IF NOT EXISTS strategies (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        field TEXT NOT NULL,
+                        operator TEXT NOT NULL,
+                        value REAL NOT NULL,
+                        signal TEXT NOT NULL
+                    );
+                `);
+                console.log('Database schema ensured.');
+            });
         }
     });
-
-    try {
-        await db.query('SELECT NOW()');
-        console.log('PostgreSQL Database connected successfully.');
-
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS watchlists (
-                userId TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                PRIMARY KEY (userId, symbol)
-            );
-        `);
-        await db.query(`
-            CREATE TABLE IF NOT EXISTS strategies (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                field TEXT NOT NULL,
-                operator TEXT NOT NULL,
-                value REAL NOT NULL,
-                signal TEXT NOT NULL
-            );
-        `);
-        console.log('Database schema ensured.');
-    } catch (err) {
-        console.error('CRITICAL: Failed to connect or setup PostgreSQL database.', err);
-        db = null;
-    }
 }
 
 // --- App Initialization ---
 async function initialize() {
-    await setupDatabase();
+    setupDatabase();
     console.log('[Health Check] Performing initial check on Python analysis service...');
     checkPythonServiceHealth();
 }
@@ -96,12 +84,30 @@ app.use(express.static(__dirname));
 
 // --- API Endpoints ---
 
+// Promisify db.all and db.run for async/await usage
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
+    if (!db) return reject(new Error("Database not available."));
+    db.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+    });
+});
+
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
+    if (!db) return reject(new Error("Database not available."));
+    db.run(sql, params, function(err) {
+        if (err) reject(err);
+        else resolve(this);
+    });
+});
+
+
 app.get('/api/watchlist/:userId', async (req, res) => {
     if (!db) return res.status(503).json({ error: 'Database not available.' });
     const { userId } = req.params;
     try {
-        const result = await db.query('SELECT symbol FROM watchlists WHERE userId = $1', [userId]);
-        res.json(result.rows.map(s => s.symbol));
+        const rows = await dbAll('SELECT symbol FROM watchlists WHERE userId = ?', [userId]);
+        res.json(rows.map(s => s.symbol));
     } catch (error) {
         console.error(`Error fetching watchlist for ${userId}:`, error);
         res.status(500).json({ error: 'Failed to fetch watchlist.' });
@@ -114,7 +120,7 @@ app.post('/api/watchlist/:userId', async (req, res) => {
     const { symbol } = req.body;
     if (!symbol) return res.status(400).json({ error: 'Symbol is required.' });
     try {
-        await db.query('INSERT INTO watchlists (userId, symbol) VALUES ($1, $2) ON CONFLICT (userId, symbol) DO NOTHING', [userId, symbol]);
+        await dbRun('INSERT INTO watchlists (userId, symbol) VALUES (?, ?) ON CONFLICT (userId, symbol) DO NOTHING', [userId, symbol]);
         res.status(201).json({ message: 'Symbol added to watchlist.' });
         fetchAndEmitStockUpdates();
     } catch (error) {
@@ -127,7 +133,7 @@ app.delete('/api/watchlist/:userId/:symbol', async (req, res) => {
     if (!db) return res.status(503).json({ error: 'Database not available.' });
     const { userId, symbol } = req.params;
     try {
-        await db.query('DELETE FROM watchlists WHERE userId = $1 AND symbol = $2', [userId, symbol]);
+        await dbRun('DELETE FROM watchlists WHERE userId = ? AND symbol = ?', [userId, symbol]);
         res.status(200).json({ message: 'Symbol removed from watchlist.' });
         fetchAndEmitStockUpdates();
     } catch (error) {
@@ -139,8 +145,8 @@ app.delete('/api/watchlist/:userId/:symbol', async (req, res) => {
 app.get('/api/strategies', async (req, res) => {
     if (!db) return res.status(503).json({ error: 'Database not available.' });
     try {
-        const result = await db.query('SELECT * FROM strategies ORDER BY name');
-        res.json(result.rows);
+        const rows = await dbAll('SELECT * FROM strategies ORDER BY name');
+        res.json(rows);
     } catch (error) {
         console.error('Error fetching strategies:', error);
         res.status(500).json({ error: 'Failed to fetch strategies.' });
@@ -152,11 +158,11 @@ app.post('/api/strategies', async (req, res) => {
     const { name, field, operator, value, signal } = req.body;
     if (!name || !field || !operator || value === undefined || !signal) return res.status(400).json({ error: 'All strategy fields are required.' });
     try {
-        const result = await db.query(
-            'INSERT INTO strategies (name, field, operator, value, signal) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        const result = await dbRun(
+            'INSERT INTO strategies (name, field, operator, value, signal) VALUES (?, ?, ?, ?, ?)',
             [name, field, operator, value, signal]
         );
-        res.status(201).json({ id: result.rows[0].id, ...req.body });
+        res.status(201).json({ id: result.lastID, ...req.body });
     } catch (error) {
         console.error('Error creating strategy:', error);
         res.status(500).json({ error: 'Failed to create strategy.' });
@@ -166,7 +172,7 @@ app.post('/api/strategies', async (req, res) => {
 app.delete('/api/strategies/:id', async (req, res) => {
     if (!db) return res.status(503).json({ error: 'Database not available.' });
     const { id } = req.params;
-    await db.query('DELETE FROM strategies WHERE id = $1', [id]);
+    await dbRun('DELETE FROM strategies WHERE id = ?', [id]);
     res.status(200).json({ message: 'Strategy deleted.' });
 });
 
@@ -201,8 +207,8 @@ async function getCombinedTrackedSymbols() {
     const allTrackedSymbols = new Set(defaultSymbols);
     if (db) {
         try {
-            const result = await db.query('SELECT DISTINCT symbol FROM watchlists');
-            result.rows.forEach(row => allTrackedSymbols.add(row.symbol));
+            const rows = await dbAll('SELECT DISTINCT symbol FROM watchlists');
+            rows.forEach(row => allTrackedSymbols.add(row.symbol));
         } catch (error) {
             console.error('Could not get distinct symbols from DB:', error);
         }
@@ -227,8 +233,7 @@ async function fetchAndEmitStockUpdates() {
         let strategies = [];
         if (db) {
             console.log("[DEBUG] Step 1: Getting strategies from DB...");
-            const result = await db.query('SELECT * FROM strategies');
-            strategies = result.rows;
+            strategies = await dbAll('SELECT * FROM strategies');
         } else {
             console.log("[DEBUG] Step 1: Skipping strategies (DB not available)...");
         }

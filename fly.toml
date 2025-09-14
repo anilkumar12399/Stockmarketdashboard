@@ -1,0 +1,36 @@
+# fly.toml file for stock-market-dashboard
+
+app = "stock-market-dashboard"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Define the processes that will run in the app
+[processes]
+  web = "node server.js" # The public-facing web server
+  analyzer = "waitress-serve --host=0.0.0.0 --port=5000 analysis_service:app" # The internal Python analyzer
+
+# This section configures the public-facing web service
+[[services]]
+  protocol = "tcp"
+  internal_port = 3001
+  processes = ["web"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "1s"
